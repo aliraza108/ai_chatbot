@@ -1,97 +1,78 @@
-
-
 # main.py
 import streamlit as st
-import os
 import shopify
 import re
-from dotenv import load_dotenv
-from notes import note_engine
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent import ReActAgent
 from llama_index.llms import openai
 import warnings
 
-# Suppress warnings
 warnings.filterwarnings("ignore")
 
-# Load environment variables
-load_dotenv()
+# API Configuration
+OPENAI_API_KEY = "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"
+SHOPIFY_CONFIG = {
+    "API_KEY": "eec9b509f0eea387bc84f2f552959c18",
+    "ACCESS_TOKEN": "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",
+    "SHOP_URL": "5tph5b-u3.myshopify.com"
+}
 
-# Configure Shopify API
+# Shopify Setup
 def configure_shopify():
     shopify.ShopifyResource.set_site(
-        f"https://{os.getenv('SHOPIFY_API_KEY')}:{os.getenv('SHOPIFY_ACCESS_TOKEN')}"
-        f"@{os.getenv('SHOPIFY_SHOP_URL')}/admin/api/2024-01"
+        f"https://{SHOPIFY_CONFIG['API_KEY']}:{SHOPIFY_CONFIG['ACCESS_TOKEN']}"
+        f"@{SHOPIFY_CONFIG['SHOP_URL']}/admin/api/2024-01"
     )
 
-def append_product_thumbnail(response, image_width: int = 200) -> str:
-    """
-    Improved version to handle multiple products, different image sizes, and "View Product" buttons.
-    """
-    if not isinstance(response, str):
-        response = str(response)
-
-    # Check for existing images using a more robust pattern
-    if re.search(r'<img[^>]*>', response):
-        return response
-
-    # Find all potential product titles (including markdown bold formats)
-    matches = re.finditer(r'(\*\*)?(?P<title>[^\n*]+?)(\*\*)?( - Price|:|\n|$)', response, re.IGNORECASE)
-
+def enhance_product_display(response):
+    """Convert product mentions to proper cards with images"""
     try:
         products = shopify.Product.find()
-        updated_response = response
         
-        for match in matches:
-            product_title = match.group('title').strip('"').strip()
-            
+        # Find all product titles in response
+        pattern = r'<h3>(.*?)<\/h3>'
+        matches = list(re.finditer(pattern, response))
+        
+        for match in reversed(matches):
+            title = match.group(1).strip()
             for product in products:
-                # Fuzzy match product titles
-                clean_product_title = product.title.strip().lower()
-                clean_query = product_title.lower()
-                
-                if clean_query in clean_product_title or clean_product_title in clean_query:
-                    if product.images:
-                        first_image = product.images[0].src
-                        # Build the product URL
-                        product_url = f"https://{os.getenv('SHOPIFY_SHOP_URL')}/products/{product.handle}"
-                        # Add responsive image sizing and "View Product" button
-                        image_html = f'''
-                        <br>
-                        <img src="{first_image}" 
-                            width="{image_width}" 
-                            style="max-width:100%; height:auto; border-radius:5px;"
-                            alt="{product.title} thumbnail"
-                        >
-                        <br>
-                        <a href="{product_url}" target="_blank">
+                if product.title.strip() == title:
+                    # Build product card
+                    card_html = f"""
+                    <div class="product-card" style="
+                        border: 1px solid #e0e0e0;
+                        border-radius: 10px;
+                        padding: 15px;
+                        margin: 15px 0;
+                    ">
+                        <h3>{product.title}</h3>
+                        <img src="{product.images[0].src}" 
+                             width="100" 
+                             style="max-width:100%; height:auto; border-radius:5px;"
+                             alt="{product.title}">
+                        <p style="margin: 10px 0;">Price: {product.variants[0].price}</p>
+                        <a href="https://{SHOPIFY_CONFIG['SHOP_URL']}/products/{product.handle}" 
+                           target="_blank"
+                           style="text-decoration: none;">
                             <button style="
-                                background-color: #4CAF50;
+                                background: #4CAF50;
                                 color: white;
                                 padding: 8px 16px;
                                 border: none;
                                 border-radius: 5px;
                                 cursor: pointer;
-                                margin-top: 8px;
                             ">
                                 View Product
                             </button>
                         </a>
-                        <br>
-                        '''
-                        # Replace only the first occurrence of this title
-                        updated_response = updated_response.replace(
-                            match.group(0), 
-                            f"{match.group(0)}{image_html}", 
-                            1
-                        )
-                        break
-        
-        return updated_response
-
+                    </div>
+                    """
+                    # Replace in reverse order to prevent offset issues
+                    response = response[:match.start()] + card_html + response[match.end():]
+                    break
+        return response
     except Exception as e:
-        print(f"Error in image insertion: {e}")
+        print(f"Display enhancement error: {e}")
         return response
 
 def init_session():
@@ -101,120 +82,90 @@ def init_session():
     if "agent" not in st.session_state:
         configure_shopify()
         
-        def query_shopify_products(query: str) -> str:
+        def get_products(query: str) -> str:
             try:
                 products = shopify.Product.find()
-                response_data = []
-                for product in products:
-                    # Build a tiny thumbnail image if available
-                    image_html = ""
-                    if hasattr(product, 'images') and product.images:
-                        first_image = product.images[0]
-                        image_src = getattr(first_image, 'src', None) or first_image.get('src', '')
-                        if image_src:
-                            # Using 200px width; change to 300px if desired
-                            image_html = f'<br><img src="{image_src}" width="200" style="max-width:100%; border-radius: 5px;" alt="{product.title} thumbnail"/><br>'
-                    
-                    product_info = f"""
-                    **{product.title}**  
-                    {image_html}
-                    {product.body_html or 'No description provided.'}  
-                    Prices: {', '.join([v.price for v in product.variants])}  
-                    [View Product](https://{os.getenv('SHOPIFY_SHOP_URL')}/products/{product.handle})
-                    """
-                    response_data.append(product_info)
-                return "\n\n".join(response_data)
+                return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
 
         shopify_tool = FunctionTool.from_defaults(
-            fn=query_shopify_products,
-            name="shopify_products",
-            description="Access real-time product data including names, descriptions, prices, URLs, and product thumbnails."
+            fn=get_products,
+            name="get_products",
+            description="Retrieve product listings with titles"
         )
 
-        llm = openai.OpenAI(model="gpt-3.5-turbo-0125")
+        llm = openai.OpenAI(
+            api_key=OPENAI_API_KEY,
+            model="gpt-3.5-turbo-0125"
+        )
+        
         st.session_state.agent = ReActAgent.from_tools(
-            tools=[note_engine, shopify_tool],
+            tools=[shopify_tool],
             llm=llm,
             verbose=False,
-            context="You're a Shopify assistant providing product info and taking notes. "
-                    "When referencing a product, include a thumbnail image and a 'View Product' button."
+            context=f"""
+            You are a product display assistant. Follow these rules:
+            1. Always respond with product titles wrapped in <h3> tags
+            2. Never include raw HTML in responses
+            3. List 3 products maximum
+            4. Keep descriptions concise
+            5. Let the system handle images and buttons
+            """
         )
 
-def apply_custom_styles():
+def apply_styles():
     st.markdown("""
     <style>
-    /* Hide rerun, deploy, and settings options */
-    .stDeployButton { display: none; }
-    #MainMenu { visibility: hidden; }
-    footer { visibility: hidden; }
-    header { visibility: hidden; }
-
-    /* Custom colors and rounded corners */
+    .product-card {
+        background: white;
+        padding: 15px;
+        margin: 15px 0;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
     .stChatMessage {
-        padding: 1rem;
-        border-radius: 1rem;
-        margin: 1rem 0;
+        background: #f5f5f5 !important;
+        border-radius: 15px !important;
     }
-    .stChatMessage.user {
-        background-color: #003166;
-        color: white;
+    button {
+        transition: transform 0.2s !important;
     }
-    .stChatMessage.assistant {
-        background-color: #ff9b00;
-        color: black;
-    }
-    [data-testid="stChatMessageContent"] p {
-        font-size: 1.1rem;
-    }
-    /* Ensure images are responsive and look good on both desktop and mobile */
-    .stChatMessage img {
-        max-width: 300px;
-        height: auto;
-        margin-top: 0.5rem;
-    }
-    /* Style for the "View Product" button */
-    .stChatMessage a button {
-        background-color: #4CAF50;
-        color: white;
-        padding: 8px 16px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        margin-top: 8px;
+    button:hover {
+        transform: scale(1.05) !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
 def main():
-    st.title("🛍️ Ali's Shop Assistant")
-    
+    st.title("🛍️ Shop Assistant")
     init_session()
-    apply_custom_styles()
+    apply_styles()
 
-    # Display chat messages with HTML enabled
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"], avatar="🧑" if message["role"] == "user" else "🤖"):
-            st.markdown(message["content"], unsafe_allow_html=True)
+    # Display history
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"], avatar="🧑" if msg["role"] == "user" else "🤖"):
+            st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # Handle user input
-    if prompt := st.chat_input("Ask about products or leave a note..."):
-        # Add user message to session state
+    # Handle input
+    if prompt := st.chat_input("Ask about products..."):
+        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="🧑"):
-            st.markdown(prompt, unsafe_allow_html=True)
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-        # Get agent response and post-process it to inject a thumbnail if applicable
         try:
-            with st.chat_message("assistant", avatar="🤖"):
+            with st.chat_message("assistant"):
+                # Get and process response
                 response = st.session_state.agent.query(prompt)
-                # Append thumbnail image and "View Product" button if a product title is detected
-                response = append_product_thumbnail(response, image_width=100)  # Set to 100px or 200px as needed
-                st.markdown(response, unsafe_allow_html=True)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                processed = enhance_product_display(response.response)
+                st.markdown(processed, unsafe_allow_html=True)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": processed
+                })
         except Exception as e:
-            st.error(f"Error generating response: {str(e)}")
+            st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
