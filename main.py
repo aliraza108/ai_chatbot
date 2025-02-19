@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # API Configuration
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "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"
 SHOPIFY_CONFIG = {
     "API_KEY": "eec9b509f0eea387bc84f2f552959c18",
     "ACCESS_TOKEN": "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",
