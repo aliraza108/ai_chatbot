@@ -1,7 +1,9 @@
 # main.py
+import os
 import streamlit as st
 import shopify
 import re
+from dotenv import load_dotenv
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent import ReActAgent
 from llama_index.llms import openai
@@ -9,12 +11,15 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# API Configuration
-OPENAI_API_KEY = "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"
+# Load environment variables from .env file
+load_dotenv()
+
+# API Configuration from environment variables
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 SHOPIFY_CONFIG = {
-    "API_KEY": "eec9b509f0eea387bc84f2f552959c18",
-    "ACCESS_TOKEN": "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",
-    "SHOP_URL": "5tph5b-u3.myshopify.com"
+    "API_KEY": os.environ.get("SHOPIFY_API_KEY"),
+    "ACCESS_TOKEN": os.environ.get("SHOPIFY_ACCESS_TOKEN"),
+    "SHOP_URL": os.environ.get("SHOPIFY_SHOP_URL")
 }
 
 # Shopify Setup
