@@ -2,34 +2,40 @@
 import streamlit as st
 import shopify
 import re
+import os
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent import ReActAgent
-from llama_index.llms import openai
+from llama_index.llms.openai import OpenAI
 import warnings
 
 warnings.filterwarnings("ignore")
 
-# API Configuration
-OPENAI_API_KEY = "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"
+# Configuration from environment variables
 SHOPIFY_CONFIG = {
-    "API_KEY": "eec9b509f0eea387bc84f2f552959c18",
-    "ACCESS_TOKEN": "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",
-    "SHOP_URL": "5tph5b-u3.myshopify.com"
+    "API_KEY": st.secrets["SHOPIFY_API_KEY"],
+    "ACCESS_TOKEN": st.secrets["SHOPIFY_ACCESS_TOKEN"],
+    "SHOP_URL": st.secrets["SHOPIFY_SHOP_URL"]
 }
+
+# Initialize OpenAI with Streamlit secrets
+openai_api_key = st.secrets["OPENAI_API_KEY"]
 
 # Shopify Setup
 def configure_shopify():
-    shopify.ShopifyResource.set_site(
-        f"https://{SHOPIFY_CONFIG['API_KEY']}:{SHOPIFY_CONFIG['ACCESS_TOKEN']}"
-        f"@{SHOPIFY_CONFIG['SHOP_URL']}/admin/api/2024-01"
-    )
+    try:
+        shopify.ShopifyResource.set_site(
+            f"https://{SHOPIFY_CONFIG['API_KEY']}:{SHOPIFY_CONFIG['ACCESS_TOKEN']}"
+            f"@{SHOPIFY_CONFIG['SHOP_URL']}/admin/api/2024-01"
+        )
+    except Exception as e:
+        st.error(f"Shopify configuration failed: {str(e)}")
+        st.stop()
 
 def enhance_product_display(response):
     """Convert product mentions to proper cards with images"""
     try:
         products = shopify.Product.find()
         
-        # Find all product titles in response
         pattern = r'<h3>(.*?)<\/h3>'
         matches = list(re.finditer(pattern, response))
         
@@ -37,7 +43,6 @@ def enhance_product_display(response):
             title = match.group(1).strip()
             for product in products:
                 if product.title.strip() == title:
-                    # Build product card
                     card_html = f"""
                     <div class="product-card" style="
                         border: 1px solid #e0e0e0;
@@ -46,11 +51,11 @@ def enhance_product_display(response):
                         margin: 15px 0;
                     ">
                         <h3>{product.title}</h3>
-                        <img src="{product.images[0].src}" 
+                        <img src="{product.images[0].src if product.images else ''}" 
                              width="100" 
                              style="max-width:100%; height:auto; border-radius:5px;"
                              alt="{product.title}">
-                        <p style="margin: 10px 0;">Price: {product.variants[0].price}</p>
+                        <p style="margin: 10px 0;">Price: {product.variants[0].price if product.variants else 'N/A'}</p>
                         <a href="https://{SHOPIFY_CONFIG['SHOP_URL']}/products/{product.handle}" 
                            target="_blank"
                            style="text-decoration: none;">
@@ -67,12 +72,11 @@ def enhance_product_display(response):
                         </a>
                     </div>
                     """
-                    # Replace in reverse order to prevent offset issues
                     response = response[:match.start()] + card_html + response[match.end():]
                     break
         return response
     except Exception as e:
-        print(f"Display enhancement error: {e}")
+        st.error(f"Display enhancement error: {str(e)}")
         return response
 
 def init_session():
@@ -95,10 +99,14 @@ def init_session():
             description="Retrieve product listings with titles"
         )
 
-        llm = openai.OpenAI(
-            api_key=OPENAI_API_KEY,
-            model="gpt-3.5-turbo-0125"
-        )
+        try:
+            llm = OpenAI(
+                api_key=openai_api_key,
+                model="gpt-3.5-turbo-0125"
+            )
+        except Exception as e:
+            st.error(f"OpenAI initialization failed: {str(e)}")
+            st.stop()
         
         st.session_state.agent = ReActAgent.from_tools(
             tools=[shopify_tool],
@@ -107,10 +115,9 @@ def init_session():
             context=f"""
             You are a product display assistant. Follow these rules:
             1. Always respond with product titles wrapped in <h3> tags
-            2. Never include raw HTML in responses
-            3. List 3 products maximum
-            4. Keep descriptions concise
-            5. Let the system handle images and buttons
+            2. List 3 products maximum
+            3. Keep descriptions concise
+            4. Let the system handle images and buttons
             """
         )
 
@@ -142,21 +149,17 @@ def main():
     init_session()
     apply_styles()
 
-    # Display history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"], avatar="🧑" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # Handle input
     if prompt := st.chat_input("Ask about products..."):
-        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         try:
             with st.chat_message("assistant"):
-                # Get and process response
                 response = st.session_state.agent.query(prompt)
                 processed = enhance_product_display(response.response)
                 st.markdown(processed, unsafe_allow_html=True)
