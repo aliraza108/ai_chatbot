@@ -13,13 +13,14 @@ warnings.filterwarnings("ignore")
 
 # Load environment variables from .env file
 load_dotenv()
-# API Configuration from environment variables
-OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
+
+# API Configuration
 SHOPIFY_CONFIG = {
     "API_KEY": os.environ.get("SHOPIFY_API_KEY"),
     "ACCESS_TOKEN": os.environ.get("SHOPIFY_ACCESS_TOKEN"),
     "SHOP_URL": os.environ.get("SHOPIFY_SHOP_URL")
 }
+OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 
 # Shopify Setup
 def configure_shopify():
@@ -55,6 +56,9 @@ def enhance_product_display(response):
                              style="max-width:100%; height:auto; border-radius:5px;"
                              alt="{product.title}">
                         <p style="margin: 10px 0;">Price: {product.variants[0].price}</p>
+                        <div style="color: #666; font-size: 0.9em;">
+                            {product.body_html or "Product description not available"}
+                        </div>
                         <a href="https://{SHOPIFY_CONFIG['SHOP_URL']}/products/{product.handle}" 
                            target="_blank"
                            style="text-decoration: none;">
@@ -65,13 +69,13 @@ def enhance_product_display(response):
                                 border: none;
                                 border-radius: 5px;
                                 cursor: pointer;
+                                margin-top: 10px;
                             ">
                                 View Product
                             </button>
                         </a>
                     </div>
                     """
-                    # Replace in reverse order to prevent offset issues
                     response = response[:match.start()] + card_html + response[match.end():]
                     break
         return response
@@ -89,6 +93,8 @@ def init_session():
         def get_products(query: str) -> str:
             try:
                 products = shopify.Product.find()
+                if query.strip():
+                    products = [p for p in products if query.lower() in p.title.lower()][:3]
                 return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
@@ -109,12 +115,13 @@ def init_session():
             llm=llm,
             verbose=False,
             context=f"""
-            You are a product display assistant. Follow these rules:
-            1. Always respond with product titles wrapped in <h3> tags
-            2. Never include raw HTML in responses
-            3. List 3 products maximum
-            4. Keep descriptions concise
-            5. Let the system handle images and buttons
+            You are Ali Raza, a chat support agent with 3 years of experience. Follow these rules:
+            1. If user greets (hi, hello, etc.), respond politely and list products using get_products
+            2. Always wrap product titles in <h3> tags when mentioned
+            3. If asked about your name/experience, respond: "My name is Ali Raza, a chat support agent with 3 years of experience."
+            4. For product inquiries, use get_products and include <h3> titles
+            5. Keep other responses concise and helpful
+            6. Never include raw HTML except <h3> tags
             """
         )
 
@@ -152,8 +159,7 @@ def main():
             st.markdown(msg["content"], unsafe_allow_html=True)
 
     # Handle input
-    if prompt := st.chat_input("Ask about products..."):
-        # Add user message
+    if prompt := st.chat_input("How can I help you today?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
