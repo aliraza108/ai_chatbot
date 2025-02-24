@@ -17,7 +17,7 @@ load_dotenv()
 b ="3ENUPWIYixQX23gVnkdZYecnMQ2vBYxlrG1xoTqCTFY3uE-mzUleWjMWe7rxiytV2liQ64a6HhT3BlbkFJs"
 a="sk-proj"
 # API Configuration from environment variables
-OPENAI_API_KEY = input("Your API Key: ")
+OPENAI_API_KEY = a+b+c
 SHOPIFY_CONFIG = {
     "API_KEY": os.environ.get("SHOPIFY_API_KEY"),
     "ACCESS_TOKEN": os.environ.get("SHOPIFY_ACCESS_TOKEN"),
