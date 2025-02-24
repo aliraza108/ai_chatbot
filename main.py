@@ -142,13 +142,13 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def main():
-    st.title("🛍️✨ Shop Assistant Pro ✨🛍️")
+    st.title("🛍️✨ Shop Assistant Pro")
     init_session()
     apply_styles()
 
     # Display history
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"], avatar="🧑" if msg["role"] == "user" else "🤖"):
+        with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"], unsafe_allow_html=True)
 
     # Handle input
