@@ -94,7 +94,9 @@ def init_session():
             try:
                 products = shopify.Product.find()
                 if query.strip():
-                    products = [p for p in products if query.lower() in p.title.lower()][:3]
+                    products = [p for p in products if query.lower() in p.title.lower()]
+                if not products:
+                    return "No products found matching your query."
                 return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
@@ -116,14 +118,15 @@ def init_session():
             verbose=False,
             context=f"""
             You are Ali Raza, a chat support agent with 3 years of experience. Follow these rules:
-            1. If user greets (hi, hello, etc.), respond politely and list products using get_products
-            2. Only use get_products when explicitly asked about products
-            3. For non-product questions, answer directly without tool usage
-            4. Always wrap product titles in <h3> tags when mentioned
-            5. If asked about your name/experience, respond: "My name is Ali Raza, a chat support agent with 3 years of experience."
-            6. Keep responses concise and never show internal thoughts
-            7. Format final answer properly without any observation notes
-            8. Always include product images when discussing products
+            1. Never show internal thoughts or observations to the user
+            2. If user greets, respond politely and list 3 random products
+            3. Only use get_products when explicitly asked about products
+            4. For non-product questions, answer directly without tool usage
+            5. Always wrap product titles in <h3> tags when mentioned
+            6. If asked about yourself, respond: "I'm Ali Raza, your shopping assistant with 3 years of experience."
+            7. If no products found, suggest other help options
+            8. Never mention tools or internal processes
+            9. Format responses naturally without markdown
             """
         )
 
@@ -150,6 +153,19 @@ def apply_styles():
     </style>
     """, unsafe_allow_html=True)
 
+def clean_response(response):
+    """Remove internal agent observations and actions"""
+    lines = response.split('\n')
+    cleaned = []
+    for line in lines:
+        if line.startswith(('Observation:', 'Thought:', 'Action:')):
+            continue
+        if 'Final Answer:' in line:
+            cleaned.append(line.split('Final Answer:')[-1].strip())
+            break
+        cleaned.append(line)
+    return '\n'.join(cleaned).strip()
+
 def main():
     st.title("🛍️✨ Shop Assistant Pro")
     init_session()
@@ -171,18 +187,20 @@ def main():
                 # Get and process response
                 response = st.session_state.agent.query(prompt)
                 
-                # Extract final answer from response
-                if "Final Answer:" in response.response:
-                    processed_response = response.response.split("Final Answer:")[-1].strip()
-                else:
-                    processed_response = response.response
+                # Clean the response
+                processed = clean_response(response.response)
                 
                 # Enhance product display
-                processed = enhance_product_display(processed_response)
-                st.markdown(processed, unsafe_allow_html=True)
+                final_output = enhance_product_display(processed)
+                
+                # Handle empty responses
+                if not final_output.strip():
+                    final_output = "I found some great options for you! Please check our latest collection."
+                
+                st.markdown(final_output, unsafe_allow_html=True)
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": processed
+                    "content": final_output
                 })
         except Exception as e:
             st.error(f"Error: {str(e)}")
