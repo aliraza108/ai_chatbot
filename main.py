@@ -9,7 +9,7 @@ from llama_index.core.agent import ReActAgent
 from llama_index.llms import openai
 import warnings
 
-c=-"L8u0UKIsz5ZqrENSeBOG2VPuu-Wk0mbVwEzsjZIuRr1r8XTtSw3GNTQQRK9b4wo6PxznX5_EA"
+c="-L8u0UKIsz5ZqrENSeBOG2VPuu-Wk0mbVwEzsjZIuRr1r8XTtSw3GNTQQRK9b4wo6PxznX5_EA"
 warnings.filterwarnings("ignore")
 
 # Load environment variables from .env file
