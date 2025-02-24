@@ -160,8 +160,7 @@ def main():
         # Check if the prompt is a greeting
         if prompt.lower().strip() in ["hi", "hello", "hey"]:
             human_reply = (
-                "Hello! I'm [Your Name], your chat support agent with 3 years of experience at FlexShopPk in Karachi, Pakistan. "
-                "How can I help you today?"
+                "Hello! How can I help you today?"
             )
             st.session_state.messages.append({"role": "assistant", "content": human_reply})
             with st.chat_message("assistant"):
