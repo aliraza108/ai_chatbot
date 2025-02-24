@@ -89,6 +89,7 @@ def init_session():
         def get_products(query: str) -> str:
             try:
                 products = shopify.Product.find()
+                # Provide up to 3 products, each wrapped in <h3> tags for conversion into product cards
                 return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
@@ -96,7 +97,7 @@ def init_session():
         shopify_tool = FunctionTool.from_defaults(
             fn=get_products,
             name="get_products",
-            description="Retrieve product listings with titles"
+            description="Retrieve product listings with titles. This function returns up to 3 product titles, each wrapped in <h3> tags."
         )
 
         llm = openai.OpenAI(
@@ -109,12 +110,10 @@ def init_session():
             llm=llm,
             verbose=False,
             context=f"""
-            You are a product display assistant. Follow these rules:
-            1. Always respond with product titles wrapped in <h3> tags
-            2. Never include raw HTML in responses
-            3. List 3 products maximum
-            4. Keep descriptions concise
-            5. Let the system handle images and buttons
+            You are a friendly, human-like chat support agent named [Your Name] with 3 years of experience at FlexShopPk in Karachi, Pakistan.
+            Greet customers warmly and engage in natural conversation. Only when a customer explicitly asks for product information should you list products.
+            When listing products, respond with up to 3 product titles wrapped in <h3> tags (do not include raw HTML) so that the system can convert them into product cards with images and a 'View Product' button.
+            Keep your general responses personable and avoid immediately jumping into product listings for greetings.
             """
         )
 
@@ -146,7 +145,7 @@ def main():
     init_session()
     apply_styles()
 
-    # Display history
+    # Display chat history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"], unsafe_allow_html=True)
@@ -158,18 +157,28 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        try:
+        # Check if the prompt is a greeting
+        if prompt.lower().strip() in ["hi", "hello", "hey"]:
+            human_reply = (
+                "Hello! I'm [Your Name], your chat support agent with 3 years of experience at FlexShopPk in Karachi, Pakistan. "
+                "How can I help you today?"
+            )
+            st.session_state.messages.append({"role": "assistant", "content": human_reply})
             with st.chat_message("assistant"):
-                # Get and process response
-                response = st.session_state.agent.query(prompt)
-                processed = enhance_product_display(response.response)
-                st.markdown(processed, unsafe_allow_html=True)
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": processed
-                })
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+                st.markdown(human_reply)
+        else:
+            try:
+                with st.chat_message("assistant"):
+                    # Get and process response for product queries or other questions
+                    response = st.session_state.agent.query(prompt)
+                    processed = enhance_product_display(response.response)
+                    st.markdown(processed, unsafe_allow_html=True)
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": processed
+                    })
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
