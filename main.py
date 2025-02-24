@@ -13,8 +13,7 @@ warnings.filterwarnings("ignore")
 
 # Load environment variables from .env file
 load_dotenv()
-
-# API Configuration
+# API Configuration from environment variables
 OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 SHOPIFY_CONFIG = {
     "API_KEY": os.environ.get("SHOPIFY_API_KEY"),
@@ -56,9 +55,6 @@ def enhance_product_display(response):
                              style="max-width:100%; height:auto; border-radius:5px;"
                              alt="{product.title}">
                         <p style="margin: 10px 0;">Price: {product.variants[0].price}</p>
-                        <div style="color: #666; font-size: 0.9em;">
-                            {product.body_html or "Product description not available"}
-                        </div>
                         <a href="https://{SHOPIFY_CONFIG['SHOP_URL']}/products/{product.handle}" 
                            target="_blank"
                            style="text-decoration: none;">
@@ -69,13 +65,13 @@ def enhance_product_display(response):
                                 border: none;
                                 border-radius: 5px;
                                 cursor: pointer;
-                                margin-top: 10px;
                             ">
                                 View Product
                             </button>
                         </a>
                     </div>
                     """
+                    # Replace in reverse order to prevent offset issues
                     response = response[:match.start()] + card_html + response[match.end():]
                     break
         return response
@@ -93,10 +89,6 @@ def init_session():
         def get_products(query: str) -> str:
             try:
                 products = shopify.Product.find()
-                if query.strip():
-                    products = [p for p in products if query.lower() in p.title.lower()]
-                if not products:
-                    return "No products found matching your query."
                 return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
@@ -117,16 +109,12 @@ def init_session():
             llm=llm,
             verbose=False,
             context=f"""
-            You are Ali Raza, a chat support agent with 3 years of experience. Follow these rules:
-            1. Never show internal thoughts or observations to the user
-            2. If user greets, respond politely and list 3 random products
-            3. Only use get_products when explicitly asked about products
-            4. For non-product questions, answer directly without tool usage
-            5. Always wrap product titles in <h3> tags when mentioned
-            6. If asked about yourself, respond: "I'm Ali Raza, your shopping assistant with 3 years of experience."
-            7. If no products found, suggest other help options
-            8. Never mention tools or internal processes
-            9. Format responses naturally without markdown
+            You are a product display assistant. Follow these rules:
+            1. Always respond with product titles wrapped in <h3> tags
+            2. Never include raw HTML in responses
+            3. List 3 products maximum
+            4. Keep descriptions concise
+            5. Let the system handle images and buttons
             """
         )
 
@@ -153,19 +141,6 @@ def apply_styles():
     </style>
     """, unsafe_allow_html=True)
 
-def clean_response(response):
-    """Remove internal agent observations and actions"""
-    lines = response.split('\n')
-    cleaned = []
-    for line in lines:
-        if line.startswith(('Observation:', 'Thought:', 'Action:')):
-            continue
-        if 'Final Answer:' in line:
-            cleaned.append(line.split('Final Answer:')[-1].strip())
-            break
-        cleaned.append(line)
-    return '\n'.join(cleaned).strip()
-
 def main():
     st.title("🛍️✨ Shop Assistant Pro")
     init_session()
@@ -177,7 +152,8 @@ def main():
             st.markdown(msg["content"], unsafe_allow_html=True)
 
     # Handle input
-    if prompt := st.chat_input("How can I help you today?"):
+    if prompt := st.chat_input("Ask about products..."):
+        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -186,21 +162,11 @@ def main():
             with st.chat_message("assistant"):
                 # Get and process response
                 response = st.session_state.agent.query(prompt)
-                
-                # Clean the response
-                processed = clean_response(response.response)
-                
-                # Enhance product display
-                final_output = enhance_product_display(processed)
-                
-                # Handle empty responses
-                if not final_output.strip():
-                    final_output = "I found some great options for you! Please check our latest collection."
-                
-                st.markdown(final_output, unsafe_allow_html=True)
+                processed = enhance_product_display(response.response)
+                st.markdown(processed, unsafe_allow_html=True)
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": final_output
+                    "content": processed
                 })
         except Exception as e:
             st.error(f"Error: {str(e)}")
