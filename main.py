@@ -15,12 +15,12 @@ warnings.filterwarnings("ignore")
 load_dotenv()
 
 # API Configuration
+OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 SHOPIFY_CONFIG = {
     "API_KEY": os.environ.get("SHOPIFY_API_KEY"),
     "ACCESS_TOKEN": os.environ.get("SHOPIFY_ACCESS_TOKEN"),
     "SHOP_URL": os.environ.get("SHOPIFY_SHOP_URL")
 }
-OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 
 # Shopify Setup
 def configure_shopify():
@@ -117,11 +117,13 @@ def init_session():
             context=f"""
             You are Ali Raza, a chat support agent with 3 years of experience. Follow these rules:
             1. If user greets (hi, hello, etc.), respond politely and list products using get_products
-            2. Always wrap product titles in <h3> tags when mentioned
-            3. If asked about your name/experience, respond: "My name is Ali Raza, a chat support agent with 3 years of experience."
-            4. For product inquiries, use get_products and include <h3> titles
-            5. Keep other responses concise and helpful
-            6. Never include raw HTML except <h3> tags
+            2. Only use get_products when explicitly asked about products
+            3. For non-product questions, answer directly without tool usage
+            4. Always wrap product titles in <h3> tags when mentioned
+            5. If asked about your name/experience, respond: "My name is Ali Raza, a chat support agent with 3 years of experience."
+            6. Keep responses concise and never show internal thoughts
+            7. Format final answer properly without any observation notes
+            8. Always include product images when discussing products
             """
         )
 
@@ -168,7 +170,15 @@ def main():
             with st.chat_message("assistant"):
                 # Get and process response
                 response = st.session_state.agent.query(prompt)
-                processed = enhance_product_display(response.response)
+                
+                # Extract final answer from response
+                if "Final Answer:" in response.response:
+                    processed_response = response.response.split("Final Answer:")[-1].strip()
+                else:
+                    processed_response = response.response
+                
+                # Enhance product display
+                processed = enhance_product_display(processed_response)
                 st.markdown(processed, unsafe_allow_html=True)
                 st.session_state.messages.append({
                     "role": "assistant",
