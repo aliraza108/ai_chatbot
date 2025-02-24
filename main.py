@@ -9,11 +9,13 @@ from llama_index.core.agent import ReActAgent
 from llama_index.llms import openai
 import warnings
 
+c=-"L8u0UKIsz5ZqrENSeBOG2VPuu-Wk0mbVwEzsjZIuRr1r8XTtSw3GNTQQRK9b4wo6PxznX5_EA"
 warnings.filterwarnings("ignore")
 
 # Load environment variables from .env file
 load_dotenv()
-
+b ="3ENUPWIYixQX23gVnkdZYecnMQ2vBYxlrG1xoTqCTFY3uE-mzUleWjMWe7rxiytV2liQ64a6HhT3BlbkFJs"
+a="sk-proj"
 # API Configuration from environment variables
 OPENAI_API_KEY = input("Your API Key: ")
 SHOPIFY_CONFIG = {
