@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 load_dotenv()
 
 # API Configuration from environment variables
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_API_KEY = input("Your API Key: )
 SHOPIFY_CONFIG = {
     "API_KEY": os.environ.get("SHOPIFY_API_KEY"),
     "ACCESS_TOKEN": os.environ.get("SHOPIFY_ACCESS_TOKEN"),
