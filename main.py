@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 # Load environment variables from .env file
 load_dotenv()
 # API Configuration from environment variables
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_API_KEY = "sk-proj-" + st.secrets["OPENAI_API_KEY"]
 SHOPIFY_CONFIG = {
     "API_KEY": os.environ.get("SHOPIFY_API_KEY"),
     "ACCESS_TOKEN": os.environ.get("SHOPIFY_ACCESS_TOKEN"),
