@@ -142,7 +142,7 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def main():
-    st.title("🛍️ Shop Assistant")
+    st.title("🛍️✨ Shop Assistant Pro ✨🛍️")
     init_session()
     apply_styles()
 
