@@ -8,18 +8,11 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# Try importing from LlamaIndex using the old paths;
-# if that fails, import using the new module paths.
-try:
-    from llama_index import GPTVectorStoreIndex, Document, ServiceContext
-except ImportError:
-    from llama_index.indices.vector_store import GPTVectorStoreIndex
-    from llama_index.schema import Document
-    from llama_index.service_context import ServiceContext
-
+# Import from llama_index (this works with llama-index v0.5.6)
+from llama_index import GPTVectorStoreIndex, Document, ServiceContext
 from llama_index.llms import OpenAI
 
-# Load environment variables if needed
+# Load environment variables (if any)
 load_dotenv()
 
 # Use the provided OpenAI API key
@@ -31,7 +24,7 @@ OPENAI_API_KEY = (
 def build_index(products_df):
     """
     Build a LlamaIndex vector store index from your product CSV.
-    Each product row is turned into a document with its details.
+    Each product row becomes a document with its details.
     """
     documents = []
     for _, row in products_df.iterrows():
@@ -43,7 +36,7 @@ def build_index(products_df):
         )
         documents.append(Document(text=doc_text))
     
-    # Create a service context with your OpenAI API key
+    # Create a service context using your OpenAI API key
     service_context = ServiceContext.from_defaults(
         llm=OpenAI(api_key=OPENAI_API_KEY, model="gpt-3.5-turbo", temperature=0)
     )
@@ -53,7 +46,7 @@ def build_index(products_df):
 def enhance_product_display(response_text, products_df):
     """
     Replace product title markers (wrapped in <h3> tags) with styled product cards.
-    Each card includes an image, price, and a "View Product" button.
+    Each card includes the product image, price, and a "View Product" button.
     """
     pattern = r'<h3>(.*?)<\/h3>'
     matches = list(re.finditer(pattern, response_text))
@@ -133,7 +126,7 @@ def main():
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.chat_message("user").markdown(prompt)
         
-        # Query the index with the user prompt (returning top 3 matches)
+        # Query the index (returning top 3 matches)
         response = st.session_state.index.query(prompt, similarity_top_k=3)
         matched_docs = response.source_nodes
         
