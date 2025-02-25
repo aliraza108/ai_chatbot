@@ -29,11 +29,11 @@ def configure_shopify():
     )
 
 def enhance_product_display(response):
-    """Convert product mentions to proper cards with images"""
+    """Convert product mentions to proper cards with images, price, and a 'View Product' button."""
     try:
         products = shopify.Product.find()
         
-        # Find all product titles in response
+        # Find all product titles in response (wrapped in <h3> tags)
         pattern = r'<h3>(.*?)<\/h3>'
         matches = list(re.finditer(pattern, response))
         
@@ -41,7 +41,9 @@ def enhance_product_display(response):
             title = match.group(1).strip()
             for product in products:
                 if product.title.strip() == title:
-                    # Build product card
+                    # Use product image if available, else use a placeholder image
+                    image_src = product.images[0].src if product.images else "https://via.placeholder.com/100?text=No+Image"
+                    # Build product card HTML
                     card_html = f"""
                     <div class="product-card" style="
                         border: 1px solid #e0e0e0;
@@ -50,7 +52,7 @@ def enhance_product_display(response):
                         margin: 15px 0;
                     ">
                         <h3>{product.title}</h3>
-                        <img src="{product.images[0].src}" 
+                        <img src="{image_src}" 
                              width="100" 
                              style="max-width:100%; height:auto; border-radius:5px;"
                              alt="{product.title}">
@@ -71,7 +73,7 @@ def enhance_product_display(response):
                         </a>
                     </div>
                     """
-                    # Replace in reverse order to prevent offset issues
+                    # Replace the product title with the full product card HTML
                     response = response[:match.start()] + card_html + response[match.end():]
                     break
         return response
@@ -89,7 +91,7 @@ def init_session():
         def get_products(query: str) -> str:
             try:
                 products = shopify.Product.find()
-                # Provide up to 3 products, each wrapped in <h3> tags for conversion into product cards
+                # Return up to 3 products, each wrapped in <h3> tags
                 return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
@@ -97,7 +99,7 @@ def init_session():
         shopify_tool = FunctionTool.from_defaults(
             fn=get_products,
             name="get_products",
-            description="Retrieve product listings with titles. This function returns up to 3 product titles, each wrapped in <h3> tags."
+            description="Retrieve product listings with titles. Returns up to 3 product titles, each wrapped in <h3> tags."
         )
 
         llm = openai.OpenAI(
@@ -110,7 +112,7 @@ def init_session():
             llm=llm,
             verbose=False,
             context=f"""
-            You are a friendly, human-like chat support agent named Ali with 3 years of experience at FlexShopPk in Karachi, Pakistan.
+            You are a friendly, human-like chat support agent named [Your Name] with 3 years of experience at FlexShopPk in Karachi, Pakistan.
             Greet customers warmly and engage in natural conversation. Only when a customer explicitly asks for product information should you list products.
             When listing products, respond with up to 3 product titles wrapped in <h3> tags (do not include raw HTML) so that the system can convert them into product cards with images and a 'View Product' button.
             Keep your general responses personable and avoid immediately jumping into product listings for greetings.
@@ -150,17 +152,18 @@ def main():
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # Handle input
+    # Handle user input
     if prompt := st.chat_input("Ask about products..."):
-        # Add user message
+        # Save user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Check if the prompt is a greeting
+        # Check if the prompt is a simple greeting
         if prompt.lower().strip() in ["hi", "hello", "hey"]:
             human_reply = (
-                "Hello! How can I help you today?"
+                "Hello! I'm [Your Name], your chat support agent with 3 years of experience at FlexShopPk in Karachi, Pakistan. "
+                "How can I help you today?"
             )
             st.session_state.messages.append({"role": "assistant", "content": human_reply})
             with st.chat_message("assistant"):
@@ -168,7 +171,7 @@ def main():
         else:
             try:
                 with st.chat_message("assistant"):
-                    # Get and process response for product queries or other questions
+                    # Get the agent's response and enhance it with product cards (if applicable)
                     response = st.session_state.agent.query(prompt)
                     processed = enhance_product_display(response.response)
                     st.markdown(processed, unsafe_allow_html=True)
