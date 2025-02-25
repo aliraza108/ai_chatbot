@@ -29,7 +29,7 @@ def enhance_product_display(response):
         for match in reversed(matches):
             title = match.group(1).strip()
             # Find product in DataFrame
-            product_match = products_df[products_df['title'] == title]
+            product_match = products_df[products_df['title'].str.contains(title, case=False, na=False)]
             if not product_match.empty:
                 product = product_match.iloc[0]
                 # Build product card
@@ -80,14 +80,21 @@ def init_session():
         st.session_state.products_df = products_df
         
         def get_products(query: str) -> str:
-            """Retrieve products from CSV data"""
-            return "\n".join([f"<h3>{row['title']}</h3>" 
-                            for _, row in products_df.head(3).iterrows()])
+            """Retrieve products from CSV data based on the query"""
+            try:
+                # Filter products based on the query
+                filtered_products = products_df[products_df['title'].str.contains(query, case=False, na=False)]
+                if filtered_products.empty:
+                    return "No products found matching your query."
+                return "\n".join([f"<h3>{row['title']}</h3>" 
+                                for _, row in filtered_products.head(3).iterrows()])
+            except Exception as e:
+                return f"Error: {str(e)}"
 
         shopify_tool = FunctionTool.from_defaults(
             fn=get_products,
             name="get_products",
-            description="Retrieve product listings with titles from inventory"
+            description="Retrieve product listings with titles from inventory based on a search query"
         )
 
         llm = openai.OpenAI(
