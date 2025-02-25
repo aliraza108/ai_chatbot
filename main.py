@@ -6,16 +6,23 @@ import pandas as pd
 from dotenv import load_dotenv
 import warnings
 
-# Import necessary components from LlamaIndex
-from llama_index import GPTVectorStoreIndex, Document, ServiceContext
-from llama_index.llms import OpenAI
-
 warnings.filterwarnings("ignore")
 
-# Load environment variables (if any)
+# Try importing from LlamaIndex using the old paths;
+# if that fails, import using the new module paths.
+try:
+    from llama_index import GPTVectorStoreIndex, Document, ServiceContext
+except ImportError:
+    from llama_index.indices.vector_store import GPTVectorStoreIndex
+    from llama_index.schema import Document
+    from llama_index.service_context import ServiceContext
+
+from llama_index.llms import OpenAI
+
+# Load environment variables if needed
 load_dotenv()
 
-# Use the provided API key
+# Use the provided OpenAI API key
 OPENAI_API_KEY = (
     "sk-proj-"
     + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
@@ -24,7 +31,7 @@ OPENAI_API_KEY = (
 def build_index(products_df):
     """
     Build a LlamaIndex vector store index from your product CSV.
-    Each product becomes a document with its details.
+    Each product row is turned into a document with its details.
     """
     documents = []
     for _, row in products_df.iterrows():
@@ -36,7 +43,7 @@ def build_index(products_df):
         )
         documents.append(Document(text=doc_text))
     
-    # Create a service context using the provided OpenAI API key and model.
+    # Create a service context with your OpenAI API key
     service_context = ServiceContext.from_defaults(
         llm=OpenAI(api_key=OPENAI_API_KEY, model="gpt-3.5-turbo", temperature=0)
     )
@@ -46,7 +53,7 @@ def build_index(products_df):
 def enhance_product_display(response_text, products_df):
     """
     Replace product title markers (wrapped in <h3> tags) with styled product cards.
-    Each card includes the product image, price, and a "View Product" button.
+    Each card includes an image, price, and a "View Product" button.
     """
     pattern = r'<h3>(.*?)<\/h3>'
     matches = list(re.finditer(pattern, response_text))
@@ -65,7 +72,6 @@ def enhance_product_display(response_text, products_df):
                 </a>
             </div>
             """
-            # Replace the matched title with the full product card.
             response_text = response_text[:match.start()] + card_html + response_text[match.end():]
     return response_text
 
@@ -97,10 +103,10 @@ def apply_styles():
 
 def init_session():
     """
-    Initialize Streamlit session state for:
+    Initialize Streamlit session state:
       - Chat history
-      - Loading the product CSV
-      - Building the LlamaIndex vector store
+      - Load product CSV
+      - Build the LlamaIndex vector store
     """
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -131,7 +137,7 @@ def main():
         response = st.session_state.index.query(prompt, similarity_top_k=3)
         matched_docs = response.source_nodes
         
-        # Create a new response by wrapping product titles in <h3> tags.
+        # Build a response by wrapping product titles in <h3> tags
         if matched_docs:
             new_response = ""
             for doc in matched_docs:
