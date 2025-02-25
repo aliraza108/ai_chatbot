@@ -31,12 +31,14 @@ def configure_shopify():
 
 def enhance_product_display(response):
     """
-    Enhance the response by replacing product placeholders or plain text product lines with full product cards.
+    Enhance the response by replacing product placeholders or plain text product lines 
+    with full product cards using the pre-indexed products.
     """
     try:
-        products = shopify.Product.find()
-
-        # 1. Replace placeholders (if any) where product names are wrapped in <div class="product-item"> tags.
+        # Use the pre-indexed products from session state
+        products = st.session_state.get("all_products", shopify.Product.find())
+        
+        # 1. Replace placeholders: product names wrapped in <div class="product-item"> tags.
         pattern_placeholder = r'<div class="product-item">(.*?)<\/div>'
         matches_placeholder = list(re.finditer(pattern_placeholder, response))
         for match in reversed(matches_placeholder):
@@ -128,21 +130,27 @@ def init_session():
     if "messages" not in st.session_state:
         st.session_state.messages = []
     
+    # Fetch and index all Shopify products and orders once per session
+    if "all_products" not in st.session_state:
+        st.session_state.all_products = list(shopify.Product.find())
+    if "all_orders" not in st.session_state:
+        try:
+            st.session_state.all_orders = list(shopify.Order.find())
+        except Exception as e:
+            st.session_state.all_orders = []
+    
     if "agent" not in st.session_state:
         configure_shopify()
         
         def get_products(query: str) -> str:
-            try:
-                products = shopify.Product.find()
-                # Return up to 3 products, each wrapped in the product placeholder tag.
-                return "\n".join([f'<div class="product-item">{p.title}</div>' for p in products[:3]])
-            except Exception as e:
-                return f"Error: {str(e)}"
-
+            # Use all indexed products to return product placeholders (now without slicing)
+            products = st.session_state.all_products
+            return "\n".join([f'<div class="product-item">{p.title}</div>' for p in products])
+        
         shopify_tool = FunctionTool.from_defaults(
             fn=get_products,
             name="get_products",
-            description='Retrieve product listings with titles. Returns up to 3 product titles wrapped in <div class="product-item"> tags.'
+            description='Retrieve all product listings with titles. Returns product titles wrapped in <div class="product-item"> tags.'
         )
 
         # Use GPT-4 for improved responses (if available)
@@ -159,7 +167,7 @@ def init_session():
             You are a friendly, human-like chat support agent named [Your Name] with 3 years of experience at FlexShopPk in Karachi, Pakistan.
             Greet customers warmly and engage in natural conversation.
             Only when a customer explicitly asks for product information should you list products.
-            When listing products, respond with up to 3 product titles wrapped in <div class="product-item"> tags (do not include raw HTML).
+            When listing products, respond with product titles wrapped in <div class="product-item"> tags (do not include raw HTML).
             The system will convert these placeholders or plain text product lines into product cards with images, prices, and a 'View Product' button.
             Keep your responses personable and avoid jumping into product listings during casual greetings.
             """
@@ -205,7 +213,7 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Handle greetings directly
+        # Respond to simple greetings directly
         if prompt.lower().strip() in ["hi", "hello", "hey"]:
             human_reply = (
                 "Hello! I'm [Your Name], your chat support agent with 3 years of experience at FlexShopPk in Karachi, Pakistan. "
