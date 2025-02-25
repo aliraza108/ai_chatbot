@@ -31,24 +31,19 @@ def configure_shopify():
 
 def enhance_product_display(response):
     """
-    Convert product placeholders to full product cards.
-    The agent returns product names wrapped in <div class="product-item"> tags.
-    This function replaces those placeholders with cards containing the product's image, price, and a 'View Product' button.
+    Enhance the response by replacing product placeholders or plain text product lines with full product cards.
     """
     try:
         products = shopify.Product.find()
-        # Find placeholders: product names wrapped in <div class="product-item"> tags.
-        pattern = r'<div class="product-item">(.*?)<\/div>'
-        matches = list(re.finditer(pattern, response))
-        
-        for match in reversed(matches):
+
+        # 1. Replace placeholders (if any) where product names are wrapped in <div class="product-item"> tags.
+        pattern_placeholder = r'<div class="product-item">(.*?)<\/div>'
+        matches_placeholder = list(re.finditer(pattern_placeholder, response))
+        for match in reversed(matches_placeholder):
             title = match.group(1).strip()
-            # Look for the matching product (case-insensitive match)
             for product in products:
                 if product.title.strip().lower() == title.lower():
-                    # Use the product image if available; otherwise, a placeholder image.
                     image_src = product.images[0].src if product.images else "https://via.placeholder.com/100?text=No+Image"
-                    # Build product card HTML
                     card_html = f"""
                     <div class="product-card" style="
                         border: 1px solid #e0e0e0;
@@ -78,10 +73,53 @@ def enhance_product_display(response):
                         </a>
                     </div>
                     """
-                    # Replace the placeholder with the full product card
                     response = response[:match.start()] + card_html + response[match.end():]
                     break
-        return response
+
+        # 2. Process plain text lines: If a line exactly matches a product title, replace that line.
+        lines = response.splitlines()
+        new_lines = []
+        for line in lines:
+            stripped_line = line.strip()
+            replaced = False
+            for product in products:
+                if stripped_line.lower() == product.title.strip().lower():
+                    image_src = product.images[0].src if product.images else "https://via.placeholder.com/100?text=No+Image"
+                    card_html = f"""
+                    <div class="product-card" style="
+                        border: 1px solid #e0e0e0;
+                        border-radius: 10px;
+                        padding: 15px;
+                        margin: 15px 0;
+                    ">
+                        <h3>{product.title}</h3>
+                        <img src="{image_src}" 
+                             width="100" 
+                             style="max-width:100%; height:auto; border-radius:5px;"
+                             alt="{product.title}">
+                        <p style="margin: 10px 0;">Price: {product.variants[0].price}</p>
+                        <a href="https://{SHOPIFY_CONFIG['SHOP_URL']}/products/{product.handle}" 
+                           target="_blank"
+                           style="text-decoration: none;">
+                            <button style="
+                                background: #4CAF50;
+                                color: white;
+                                padding: 8px 16px;
+                                border: none;
+                                border-radius: 5px;
+                                cursor: pointer;
+                            ">
+                                View Product
+                            </button>
+                        </a>
+                    </div>
+                    """
+                    new_lines.append(card_html)
+                    replaced = True
+                    break
+            if not replaced:
+                new_lines.append(line)
+        return "\n".join(new_lines)
     except Exception as e:
         print(f"Display enhancement error: {e}")
         return response
@@ -96,7 +134,7 @@ def init_session():
         def get_products(query: str) -> str:
             try:
                 products = shopify.Product.find()
-                # Return up to 3 products, each wrapped in <div class="product-item"> tags
+                # Return up to 3 products, each wrapped in the product placeholder tag.
                 return "\n".join([f'<div class="product-item">{p.title}</div>' for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
@@ -104,12 +142,13 @@ def init_session():
         shopify_tool = FunctionTool.from_defaults(
             fn=get_products,
             name="get_products",
-            description="Retrieve product listings with titles. Returns up to 3 product titles wrapped in <div class=\"product-item\"> tags."
+            description='Retrieve product listings with titles. Returns up to 3 product titles wrapped in <div class="product-item"> tags.'
         )
 
+        # Use GPT-4 for improved responses (if available)
         llm = openai.OpenAI(
             api_key=OPENAI_API_KEY,
-            model="gpt-3.5-turbo-0125"
+            model="gpt-4"
         )
         
         st.session_state.agent = ReActAgent.from_tools(
@@ -121,7 +160,7 @@ def init_session():
             Greet customers warmly and engage in natural conversation.
             Only when a customer explicitly asks for product information should you list products.
             When listing products, respond with up to 3 product titles wrapped in <div class="product-item"> tags (do not include raw HTML).
-            The system will convert these placeholders into product cards with images, prices, and a 'View Product' button.
+            The system will convert these placeholders or plain text product lines into product cards with images, prices, and a 'View Product' button.
             Keep your responses personable and avoid jumping into product listings during casual greetings.
             """
         )
@@ -161,12 +200,12 @@ def main():
 
     # Handle user input
     if prompt := st.chat_input("Ask about products..."):
-        # Save user message
+        # Save and display user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Respond to simple greetings directly
+        # Handle greetings directly
         if prompt.lower().strip() in ["hi", "hello", "hey"]:
             human_reply = (
                 "Hello! I'm [Your Name], your chat support agent with 3 years of experience at FlexShopPk in Karachi, Pakistan. "
@@ -178,7 +217,6 @@ def main():
         else:
             try:
                 with st.chat_message("assistant"):
-                    # Query the agent and enhance its response by converting placeholders into product cards
                     response = st.session_state.agent.query(prompt)
                     processed = enhance_product_display(response.response)
                     st.markdown(processed, unsafe_allow_html=True)
