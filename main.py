@@ -2,6 +2,8 @@ import re
 import streamlit as st
 import pandas as pd
 from llama_index.core import VectorStoreIndex, Settings
+from llama_index.core.agent import ReActAgent
+from llama_index.core.tools import FunctionTool  # Fix: Import FunctionTool
 from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 
@@ -56,6 +58,7 @@ def get_product_count(query: str) -> str:
     return f"Total {query} products: {count}"
 
 def init_session():
+    """Initialize session state and tools"""
     if "products_df" not in st.session_state:
         st.session_state.products_df = pd.read_csv("product.csv")
         st.session_state.products_df['Variant Price'] = st.session_state.products_df['Variant Price'].astype(float)
