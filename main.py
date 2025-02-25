@@ -4,62 +4,62 @@ import streamlit as st
 import pandas as pd
 from dotenv import load_dotenv
 
-# 1) LlamaIndex imports
-from llama_index.core import Settings
+# LlamaIndex imports
+from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.llms.openai import OpenAI
+from llama_index.core.node_parser import SimpleNodeParser
+from llama_index.core.schema import TextNode
 
-# 2) Load environment variables
+# Load environment variables
 load_dotenv()
 
-# 3) Use your OpenAI API key
-OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
+# Initialize OpenAI API key
+OPENAI_API_KEY = "sk-proj-..."  # Replace with your key
 
 ###############################################################################
-#                               FAKE DATA                                     #
+#                            DATA PREPARATION                                 #
 ###############################################################################
 
-FAKE_PERSONAL_DATA = {
-    "john@example.com": {
-        "name": "John Doe",
-        "email": "john@example.com",
-        "loyalty_points": 1200,
-        "preferred_language": "English",
-    },
-    "jane@example.com": {
-        "name": "Jane Smith",
-        "email": "jane@example.com",
-        "loyalty_points": 300,
-        "preferred_language": "French",
-    },
-}
-
-FAKE_CONVERSATION_HISTORY = {
-    "john@example.com": [
-        "User asked about shipping times",
-        "User asked about returns policy",
-    ],
-    "jane@example.com": [
-        "User asked about discount codes",
-    ],
-}
-
-###############################################################################
-#                         PRODUCT DISPLAY FUNCTION                            #
-###############################################################################
-
-def enhance_product_display(response_text: str, products_df: pd.DataFrame) -> str:
-    """Replace product names with cards containing images and buttons."""
-    pattern = r'\[PRODUCT\](.*?)\[\/PRODUCT\]'
-    matches = list(re.finditer(pattern, response_text, re.IGNORECASE))
+def load_and_index_products():
+    """Load product data and create VectorStoreIndex with embeddings"""
+    # Load CSV data
+    products_df = pd.read_csv("product.csv")
     
-    for match in reversed(matches):
-        product_name = match.group(1).strip()
-        product_match = products_df[products_df['title'] == product_name]
-        
-        if not product_match.empty:
-            product = product_match.iloc[0]
+    # Create nodes with metadata
+    nodes = []
+    for _, row in products_df.iterrows():
+        node = TextNode(
+            text=f"Product: {row['title']}\nDescription: {row['description']}\nPrice: {row['price']}",
+            metadata={
+                "title": row['title'],
+                "price": row['price'],
+                "image_url": row['image_url'],
+                "product_url": row['product_url']
+            }
+        )
+        nodes.append(node)
+    
+    # Create index
+    parser = SimpleNodeParser()
+    nodes = parser.get_nodes_from_documents(nodes)
+    return VectorStoreIndex(nodes)
+
+###############################################################################
+#                          PRODUCT DISPLAY FUNCTION                           #
+###############################################################################
+
+def enhance_product_display(response_text: str) -> str:
+    """Replace [PRODUCT] tags with styled cards"""
+    pattern = r'\[PRODUCT\](.*?)\[\/PRODUCT\]'
+    products = re.findall(pattern, response_text, re.IGNORECASE)
+    
+    for product_title in products:
+        # Get product info from index
+        results = st.session_state.product_index.as_retriever().retrieve(product_title)
+        if results:
+            product = results[0].node.metadata
             card_html = f"""
             <div class="product-card">
                 <h4>{product['title']}</h4>
@@ -70,9 +70,7 @@ def enhance_product_display(response_text: str, products_df: pd.DataFrame) -> st
                 </a>
             </div>
             """
-            response_text = (response_text[:match.start()] + 
-                            card_html + 
-                            response_text[match.end():])
+            response_text = response_text.replace(f"[PRODUCT]{product_title}[/PRODUCT]", card_html)
     
     return response_text
 
@@ -80,38 +78,32 @@ def enhance_product_display(response_text: str, products_df: pd.DataFrame) -> st
 #                                TOOLS                                        #
 ###############################################################################
 
-def get_product_data(query: str) -> str:
-    """Retrieve product data and format for agent."""
-    products_df = st.session_state.products_df
-    query = query.lower()
+def product_search_tool(query: str) -> str:
+    """Search products using VectorStoreIndex"""
+    retriever = st.session_state.product_index.as_retriever(similarity_top_k=3)
+    results = retriever.retrieve(query)
     
-    # Simple search implementation
-    results = products_df[
-        products_df['title'].str.lower().str.contains(query) |
-        products_df['description'].str.lower().str.contains(query)
-    ].head(3)
-    
-    if results.empty:
+    if not results:
         return "No products found."
     
-    return "\n".join([f"[PRODUCT]{row['title']}[/PRODUCT]" for _, row in results.iterrows()])
+    response = []
+    for node in results:
+        metadata = node.node.metadata
+        response.append(f"[PRODUCT]{metadata['title']}[/PRODUCT] (${metadata['price']})")
+    
+    return "\n".join(response)
 
-def get_personal_info(email: str) -> str:
-    """Retrieve personal info from fake data."""
-    user_data = FAKE_PERSONAL_DATA.get(email.lower())
-    return str(user_data) if user_data else "No user found."
-
-def get_conversation_history(email: str) -> str:
-    """Retrieve conversation history from fake data."""
-    history = FAKE_CONVERSATION_HISTORY.get(email.lower())
-    return "\n".join(history) if history else "No history found."
+def get_lowest_price_tool(query: str) -> str:
+    """Find lowest priced products"""
+    products = st.session_state.products_df.sort_values('price').head(3)
+    return "\n".join([f"[PRODUCT]{row['title']}[/PRODUCT] (${row['price']})" for _, row in products.iterrows()])
 
 ###############################################################################
 #                              INITIALIZATION                                 #
 ###############################################################################
 
 def apply_styles():
-    """Add custom CSS styles."""
+    """Add custom CSS styles"""
     st.markdown("""
     <style>
     .product-card {
@@ -133,23 +125,27 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def init_session():
-    """Initialize session state and agent."""
+    """Initialize session state"""
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    if "products_df" not in st.session_state:
-        csv_path = "product.csv"  # Update with your path
-        df = pd.read_csv(csv_path)
-        # Ensure these columns exist in your CSV:
-        # title, price, image_url, product_url
-        st.session_state.products_df = df
+    if "product_index" not in st.session_state:
+        st.session_state.product_index = load_and_index_products()
+        st.session_state.products_df = pd.read_csv("product.csv")
 
     if "agent" not in st.session_state:
         # Create tools
         tools = [
-            FunctionTool.from_defaults(fn=get_product_data, name="product_search"),
-            FunctionTool.from_defaults(fn=get_personal_info, name="user_info"),
-            FunctionTool.from_defaults(fn=get_conversation_history, name="chat_history")
+            FunctionTool.from_defaults(
+                fn=product_search_tool,
+                name="product_search",
+                description="Search products by name, description, or features. Can also find products by price range."
+            ),
+            FunctionTool.from_defaults(
+                fn=get_lowest_price_tool,
+                name="lowest_price",
+                description="Find the lowest priced products in the catalog"
+            )
         ]
 
         # Configure LLM
@@ -162,16 +158,14 @@ def init_session():
         # Create agent
         st.session_state.agent = ReActAgent.from_tools(
             tools=tools,
-            llm=Settings.llm,
-            verbose=True,
             system_prompt="""
-            You are an e-commerce support assistant. Follow these rules:
-            1. Use product_search for product-related queries
-            2. Use user_info for account questions (ask for email)
-            3. Use chat_history for previous interactions
-            4. Always wrap product names in [PRODUCT][/PRODUCT] tags
-            5. Keep responses concise and helpful
-            6. Mention product features from the data
+            You are an e-commerce assistant. Follow these rules:
+            1. ALWAYS use tools for product queries
+            2. Wrap product names in [PRODUCT][/PRODUCT] tags
+            3. Mention prices when talking about products
+            4. For price comparisons, use lowest_price tool
+            5. Always include product images and buttons
+            6. Keep responses concise but helpful
             """
         )
 
@@ -180,7 +174,7 @@ def init_session():
 ###############################################################################
 
 def main():
-    st.title("🛍️ E-commerce Assistant")
+    st.title("🛍️ Smart Shopping Assistant")
     apply_styles()
     init_session()
 
@@ -189,21 +183,15 @@ def main():
         role = "assistant" if msg["role"] == "assistant" else "user"
         st.chat_message(role).markdown(msg["content"], unsafe_allow_html=True)
 
-    # Handle user input
-    if prompt := st.chat_input("Ask about products or your account..."):
-        # Add user message
+    # Handle input
+    if prompt := st.chat_input("Ask about products or prices..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.chat_message("user").markdown(prompt)
 
         try:
-            # Get agent response
             response = st.session_state.agent.chat(prompt)
-            processed_response = enhance_product_display(
-                response.response,
-                st.session_state.products_df
-            )
-
-            # Add and display assistant response
+            processed_response = enhance_product_display(response.response)
+            
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": processed_response
@@ -211,7 +199,7 @@ def main():
             st.chat_message("assistant").markdown(processed_response, unsafe_allow_html=True)
 
         except Exception as e:
-            st.error(f"Error processing request: {str(e)}")
+            st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
