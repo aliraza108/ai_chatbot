@@ -13,6 +13,7 @@ warnings.filterwarnings("ignore")
 
 # Load environment variables from .env file
 load_dotenv()
+
 # API Configuration from environment variables
 OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 SHOPIFY_CONFIG = {
@@ -29,19 +30,23 @@ def configure_shopify():
     )
 
 def enhance_product_display(response):
-    """Convert product mentions to proper cards with images, price, and a 'View Product' button."""
+    """
+    Convert product placeholders to full product cards.
+    The agent returns product names wrapped in <div class="product-item"> tags.
+    This function replaces those placeholders with cards containing the product's image, price, and a 'View Product' button.
+    """
     try:
         products = shopify.Product.find()
-        
-        # Find all product titles in response (wrapped in <h3> tags)
-        pattern = r'<h3>(.*?)<\/h3>'
+        # Find placeholders: product names wrapped in <div class="product-item"> tags.
+        pattern = r'<div class="product-item">(.*?)<\/div>'
         matches = list(re.finditer(pattern, response))
         
         for match in reversed(matches):
             title = match.group(1).strip()
+            # Look for the matching product (case-insensitive match)
             for product in products:
-                if product.title.strip() == title:
-                    # Use product image if available, else use a placeholder image
+                if product.title.strip().lower() == title.lower():
+                    # Use the product image if available; otherwise, a placeholder image.
                     image_src = product.images[0].src if product.images else "https://via.placeholder.com/100?text=No+Image"
                     # Build product card HTML
                     card_html = f"""
@@ -73,7 +78,7 @@ def enhance_product_display(response):
                         </a>
                     </div>
                     """
-                    # Replace the product title with the full product card HTML
+                    # Replace the placeholder with the full product card
                     response = response[:match.start()] + card_html + response[match.end():]
                     break
         return response
@@ -91,15 +96,15 @@ def init_session():
         def get_products(query: str) -> str:
             try:
                 products = shopify.Product.find()
-                # Return up to 3 products, each wrapped in <h3> tags
-                return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
+                # Return up to 3 products, each wrapped in <div class="product-item"> tags
+                return "\n".join([f'<div class="product-item">{p.title}</div>' for p in products[:3]])
             except Exception as e:
                 return f"Error: {str(e)}"
 
         shopify_tool = FunctionTool.from_defaults(
             fn=get_products,
             name="get_products",
-            description="Retrieve product listings with titles. Returns up to 3 product titles, each wrapped in <h3> tags."
+            description="Retrieve product listings with titles. Returns up to 3 product titles wrapped in <div class=\"product-item\"> tags."
         )
 
         llm = openai.OpenAI(
@@ -113,9 +118,11 @@ def init_session():
             verbose=False,
             context=f"""
             You are a friendly, human-like chat support agent named [Your Name] with 3 years of experience at FlexShopPk in Karachi, Pakistan.
-            Greet customers warmly and engage in natural conversation. Only when a customer explicitly asks for product information should you list products.
-            When listing products, respond with up to 3 product titles wrapped in <h3> tags (do not include raw HTML) so that the system can convert them into product cards with images and a 'View Product' button.
-            Keep your general responses personable and avoid immediately jumping into product listings for greetings.
+            Greet customers warmly and engage in natural conversation.
+            Only when a customer explicitly asks for product information should you list products.
+            When listing products, respond with up to 3 product titles wrapped in <div class="product-item"> tags (do not include raw HTML).
+            The system will convert these placeholders into product cards with images, prices, and a 'View Product' button.
+            Keep your responses personable and avoid jumping into product listings during casual greetings.
             """
         )
 
@@ -159,7 +166,7 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Check if the prompt is a simple greeting
+        # Respond to simple greetings directly
         if prompt.lower().strip() in ["hi", "hello", "hey"]:
             human_reply = (
                 "Hello! I'm [Your Name], your chat support agent with 3 years of experience at FlexShopPk in Karachi, Pakistan. "
@@ -171,7 +178,7 @@ def main():
         else:
             try:
                 with st.chat_message("assistant"):
-                    # Get the agent's response and enhance it with product cards (if applicable)
+                    # Query the agent and enhance its response by converting placeholders into product cards
                     response = st.session_state.agent.query(prompt)
                     processed = enhance_product_display(response.response)
                     st.markdown(processed, unsafe_allow_html=True)
