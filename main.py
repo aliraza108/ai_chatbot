@@ -15,14 +15,15 @@ from llama_index.core.schema import TextNode
 # Load environment variables
 load_dotenv()
 
-OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
+# Initialize OpenAI API key
+OPENAI_API_KEY = "sk-proj-..."  # Replace with your key
 
 ###############################################################################
 #                            DATA PREPARATION                                 #
 ###############################################################################
 
 def load_and_index_products():
-    """Load product data and create VectorStoreIndex with embeddings"""
+    """Load Shopify CSV and create VectorStoreIndex with embeddings"""
     # Load CSV data
     products_df = pd.read_csv("product.csv")
     
@@ -30,12 +31,16 @@ def load_and_index_products():
     nodes = []
     for _, row in products_df.iterrows():
         node = TextNode(
-            text=f"Product: {row['title']}\nDescription: {row['description']}\nPrice: {row['price']}",
+            text=f"Product: {row['Title']}\nDescription: {row['Body (HTML)']}\nPrice: {row['Variant Price']}",
             metadata={
-                "title": row['title'],
-                "price": row['price'],
-                "image_url": row['image_url'],
-                "product_url": row['product_url']
+                "title": row['Title'],
+                "price": row['Variant Price'],
+                "image_url": row['Image Src'],
+                "product_url": f"https://yourstore.com/products/{row['Handle']}",  # Update with your store URL
+                "vendor": row['Vendor'],
+                "type": row['Type'],
+                "tags": row['Tags'],
+                "inventory": row['Variant Inventory Qty']
             }
         )
         nodes.append(node)
@@ -43,7 +48,7 @@ def load_and_index_products():
     # Create index
     parser = SimpleNodeParser()
     nodes = parser.get_nodes_from_documents(nodes)
-    return VectorStoreIndex(nodes)
+    return VectorStoreIndex(nodes), products_df
 
 ###############################################################################
 #                          PRODUCT DISPLAY FUNCTION                           #
@@ -64,6 +69,8 @@ def enhance_product_display(response_text: str) -> str:
                 <h4>{product['title']}</h4>
                 <img src="{product['image_url']}" width="100" style="max-width:100%; height:auto;">
                 <p>Price: ${product['price']}</p>
+                <p>Vendor: {product['vendor']}</p>
+                <p>Stock: {product['inventory']}</p>
                 <a href="{product['product_url']}" target="_blank">
                     <button class="view-button">View Product</button>
                 </a>
@@ -71,7 +78,7 @@ def enhance_product_display(response_text: str) -> str:
             """
             response_text = response_text.replace(f"[PRODUCT]{product_title}[/PRODUCT]", card_html)
     
-    return response_text
+    return response_html
 
 ###############################################################################
 #                                TOOLS                                        #
@@ -94,8 +101,15 @@ def product_search_tool(query: str) -> str:
 
 def get_lowest_price_tool(query: str) -> str:
     """Find lowest priced products"""
-    products = st.session_state.products_df.sort_values('price').head(3)
-    return "\n".join([f"[PRODUCT]{row['title']}[/PRODUCT] (${row['price']})" for _, row in products.iterrows()])
+    products = st.session_state.products_df.sort_values('Variant Price').head(3)
+    return "\n".join([f"[PRODUCT]{row['Title']}[/PRODUCT] (${row['Variant Price']})" for _, row in products.iterrows()])
+
+def get_inventory_status(query: str) -> str:
+    """Check product inventory status"""
+    product = st.session_state.products_df[st.session_state.products_df['Title'].str.contains(query, case=False)]
+    if not product.empty:
+        return f"Inventory status for {product.iloc[0]['Title']}: {product.iloc[0]['Variant Inventory Qty']} in stock"
+    return "Product not found"
 
 ###############################################################################
 #                              INITIALIZATION                                 #
@@ -129,8 +143,7 @@ def init_session():
         st.session_state.messages = []
 
     if "product_index" not in st.session_state:
-        st.session_state.product_index = load_and_index_products()
-        st.session_state.products_df = pd.read_csv("product.csv")
+        st.session_state.product_index, st.session_state.products_df = load_and_index_products()
 
     if "agent" not in st.session_state:
         # Create tools
@@ -138,12 +151,17 @@ def init_session():
             FunctionTool.from_defaults(
                 fn=product_search_tool,
                 name="product_search",
-                description="Search products by name, description, or features. Can also find products by price range."
+                description="Search products by title, description, or features"
             ),
             FunctionTool.from_defaults(
                 fn=get_lowest_price_tool,
                 name="lowest_price",
                 description="Find the lowest priced products in the catalog"
+            ),
+            FunctionTool.from_defaults(
+                fn=get_inventory_status,
+                name="inventory_check",
+                description="Check inventory status for specific products"
             )
         ]
 
@@ -158,13 +176,14 @@ def init_session():
         st.session_state.agent = ReActAgent.from_tools(
             tools=tools,
             system_prompt="""
-            You are an e-commerce assistant. Follow these rules:
+            You are an e-commerce assistant for a Shopify store. Follow these rules:
             1. ALWAYS use tools for product queries
             2. Wrap product names in [PRODUCT][/PRODUCT] tags
-            3. Mention prices when talking about products
+            3. Mention prices and inventory when available
             4. For price comparisons, use lowest_price tool
             5. Always include product images and buttons
             6. Keep responses concise but helpful
+            7. Use inventory_check tool for stock inquiries
             """
         )
 
@@ -173,7 +192,7 @@ def init_session():
 ###############################################################################
 
 def main():
-    st.title("🛍️ Smart Shopping Assistant")
+    st.title("🛍️ Shopify Product Assistant")
     apply_styles()
     init_session()
 
@@ -183,7 +202,7 @@ def main():
         st.chat_message(role).markdown(msg["content"], unsafe_allow_html=True)
 
     # Handle input
-    if prompt := st.chat_input("Ask about products or prices..."):
+    if prompt := st.chat_input("Ask about products, prices, or inventory..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.chat_message("user").markdown(prompt)
 
