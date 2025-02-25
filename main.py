@@ -13,7 +13,6 @@ warnings.filterwarnings("ignore")
 
 # Load environment variables from .env file
 load_dotenv()
-
 # API Configuration from environment variables
 OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 SHOPIFY_CONFIG = {
@@ -30,22 +29,19 @@ def configure_shopify():
     )
 
 def enhance_product_display(response):
-    """
-    Enhance the response by replacing product placeholders or plain text product lines 
-    with full product cards using the pre-indexed products.
-    """
+    """Convert product mentions to proper cards with images"""
     try:
-        # Use the pre-indexed products from session state
-        products = st.session_state.get("all_products", shopify.Product.find())
+        products = shopify.Product.find()
         
-        # 1. Replace placeholders: product names wrapped in <div class="product-item"> tags.
-        pattern_placeholder = r'<div class="product-item">(.*?)<\/div>'
-        matches_placeholder = list(re.finditer(pattern_placeholder, response))
-        for match in reversed(matches_placeholder):
+        # Find all product titles in response
+        pattern = r'<h3>(.*?)<\/h3>'
+        matches = list(re.finditer(pattern, response))
+        
+        for match in reversed(matches):
             title = match.group(1).strip()
             for product in products:
-                if product.title.strip().lower() == title.lower():
-                    image_src = product.images[0].src if product.images else "https://via.placeholder.com/100?text=No+Image"
+                if product.title.strip() == title:
+                    # Build product card
                     card_html = f"""
                     <div class="product-card" style="
                         border: 1px solid #e0e0e0;
@@ -54,7 +50,7 @@ def enhance_product_display(response):
                         margin: 15px 0;
                     ">
                         <h3>{product.title}</h3>
-                        <img src="{image_src}" 
+                        <img src="{product.images[0].src}" 
                              width="100" 
                              style="max-width:100%; height:auto; border-radius:5px;"
                              alt="{product.title}">
@@ -75,53 +71,10 @@ def enhance_product_display(response):
                         </a>
                     </div>
                     """
+                    # Replace in reverse order to prevent offset issues
                     response = response[:match.start()] + card_html + response[match.end():]
                     break
-
-        # 2. Process plain text lines: If a line exactly matches a product title, replace that line.
-        lines = response.splitlines()
-        new_lines = []
-        for line in lines:
-            stripped_line = line.strip()
-            replaced = False
-            for product in products:
-                if stripped_line.lower() == product.title.strip().lower():
-                    image_src = product.images[0].src if product.images else "https://via.placeholder.com/100?text=No+Image"
-                    card_html = f"""
-                    <div class="product-card" style="
-                        border: 1px solid #e0e0e0;
-                        border-radius: 10px;
-                        padding: 15px;
-                        margin: 15px 0;
-                    ">
-                        <h3>{product.title}</h3>
-                        <img src="{image_src}" 
-                             width="100" 
-                             style="max-width:100%; height:auto; border-radius:5px;"
-                             alt="{product.title}">
-                        <p style="margin: 10px 0;">Price: {product.variants[0].price}</p>
-                        <a href="https://{SHOPIFY_CONFIG['SHOP_URL']}/products/{product.handle}" 
-                           target="_blank"
-                           style="text-decoration: none;">
-                            <button style="
-                                background: #4CAF50;
-                                color: white;
-                                padding: 8px 16px;
-                                border: none;
-                                border-radius: 5px;
-                                cursor: pointer;
-                            ">
-                                View Product
-                            </button>
-                        </a>
-                    </div>
-                    """
-                    new_lines.append(card_html)
-                    replaced = True
-                    break
-            if not replaced:
-                new_lines.append(line)
-        return "\n".join(new_lines)
+        return response
     except Exception as e:
         print(f"Display enhancement error: {e}")
         return response
@@ -130,33 +83,25 @@ def init_session():
     if "messages" not in st.session_state:
         st.session_state.messages = []
     
-    # Fetch and index all Shopify products and orders once per session
-    if "all_products" not in st.session_state:
-        st.session_state.all_products = list(shopify.Product.find())
-    if "all_orders" not in st.session_state:
-        try:
-            st.session_state.all_orders = list(shopify.Order.find())
-        except Exception as e:
-            st.session_state.all_orders = []
-    
     if "agent" not in st.session_state:
         configure_shopify()
         
         def get_products(query: str) -> str:
-            # Use all indexed products to return product placeholders (now without slicing)
-            products = st.session_state.all_products
-            return "\n".join([f'<div class="product-item">{p.title}</div>' for p in products])
-        
+            try:
+                products = shopify.Product.find()
+                return "\n".join([f"<h3>{p.title}</h3>" for p in products[:3]])
+            except Exception as e:
+                return f"Error: {str(e)}"
+
         shopify_tool = FunctionTool.from_defaults(
             fn=get_products,
             name="get_products",
-            description='Retrieve all product listings with titles. Returns product titles wrapped in <div class="product-item"> tags.'
+            description="Retrieve product listings with titles"
         )
 
-        # Use GPT-4 for improved responses (if available)
         llm = openai.OpenAI(
             api_key=OPENAI_API_KEY,
-            model="gpt-4"
+            model="gpt-3.5-turbo-0125"
         )
         
         st.session_state.agent = ReActAgent.from_tools(
@@ -164,12 +109,12 @@ def init_session():
             llm=llm,
             verbose=False,
             context=f"""
-            You are a friendly, human-like chat support agent named [Your Name] with 3 years of experience at FlexShopPk in Karachi, Pakistan.
-            Greet customers warmly and engage in natural conversation.
-            Only when a customer explicitly asks for product information should you list products.
-            When listing products, respond with product titles wrapped in <div class="product-item"> tags (do not include raw HTML).
-            The system will convert these placeholders or plain text product lines into product cards with images, prices, and a 'View Product' button.
-            Keep your responses personable and avoid jumping into product listings during casual greetings.
+            You are a product display assistant. Follow these rules:
+            1. Always respond with product titles wrapped in <h3> tags
+            2. Never include raw HTML in responses
+            3. List 3 products maximum
+            4. Keep descriptions concise
+            5. Let the system handle images and buttons
             """
         )
 
@@ -201,39 +146,30 @@ def main():
     init_session()
     apply_styles()
 
-    # Display chat history
+    # Display history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # Handle user input
+    # Handle input
     if prompt := st.chat_input("Ask about products..."):
-        # Save and display user message
+        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Respond to simple greetings directly
-        if prompt.lower().strip() in ["hi", "hello", "hey"]:
-            human_reply = (
-                "Hello! I'm [Your Name], your chat support agent with 3 years of experience at FlexShopPk in Karachi, Pakistan. "
-                "How can I help you today?"
-            )
-            st.session_state.messages.append({"role": "assistant", "content": human_reply})
+        try:
             with st.chat_message("assistant"):
-                st.markdown(human_reply)
-        else:
-            try:
-                with st.chat_message("assistant"):
-                    response = st.session_state.agent.query(prompt)
-                    processed = enhance_product_display(response.response)
-                    st.markdown(processed, unsafe_allow_html=True)
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": processed
-                    })
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
+                # Get and process response
+                response = st.session_state.agent.query(prompt)
+                processed = enhance_product_display(response.response)
+                st.markdown(processed, unsafe_allow_html=True)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": processed
+                })
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
