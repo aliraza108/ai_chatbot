@@ -1,11 +1,5 @@
-streamlit
-python-dotenv
-llama-index
-openai
-ShopifyAPI
-streamlit
-llama-index
+streamlit>=1.18
+llama-index==0.5.6
 openai
 pandas
 python-dotenv
-
