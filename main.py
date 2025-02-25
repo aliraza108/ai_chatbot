@@ -70,6 +70,9 @@ def init_session():
     if "agent" not in st.session_state:
         try:
             # Load CSV with validation
+            if not os.path.exists(CSV_PATH):
+                raise FileNotFoundError(f"CSV file not found at {CSV_PATH}")
+            
             products_df = pd.read_csv(CSV_PATH)
             
             # Normalize column names (case-insensitive and strip spaces)
@@ -77,7 +80,7 @@ def init_session():
             
             # Verify required columns
             required_columns = ['title', 'image_url', 'price']
-            missing = [col for col in required_columns if col not in products_df]
+            missing = [col for col in required_columns if col not in products_df.columns]
             if missing:
                 raise ValueError(f"CSV is missing required columns: {missing}")
                 
