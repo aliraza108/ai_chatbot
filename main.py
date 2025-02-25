@@ -36,7 +36,7 @@ def enhance_product_display(response):
         
         for match in reversed(matches):
             title = match.group(1).strip()
-            product_match = products_df[products_df['title'] == title]
+            product_match = products_df[products_df['title'].str.contains(title, case=False, na=False)]
             
             if not product_match.empty:
                 product = product_match.iloc[0]
@@ -68,56 +68,75 @@ def init_session():
         st.session_state.messages = []
     
     if "agent" not in st.session_state:
-        # Load and prepare CSV data
-        products_df = pd.read_csv(CSV_PATH)
-        products_df['title'] = products_df['title'].str.strip()
-        st.session_state.products_df = products_df
-        
-        def get_products(query: str) -> str:
-            """Retrieve products from CSV data"""
-            try:
-                # Clean and split query into search terms
-                search_terms = [term.strip().lower() for term in re.split(r'\W+', query) if term]
+        try:
+            # Load CSV with validation
+            products_df = pd.read_csv(CSV_PATH)
+            
+            # Normalize column names (case-insensitive and strip spaces)
+            products_df.columns = products_df.columns.str.strip().str.lower()
+            
+            # Verify required columns
+            required_columns = ['title', 'image_url', 'price']
+            missing = [col for col in required_columns if col not in products_df]
+            if missing:
+                raise ValueError(f"CSV is missing required columns: {missing}")
                 
-                # Find matching products
-                mask = products_df['title'].apply(
-                    lambda x: any(term in x.lower() for term in search_terms)
+            # Clean data
+            products_df['title'] = products_df['title'].str.strip()
+            products_df['image_url'] = products_df['image_url'].fillna("https://via.placeholder.com/100")
+            products_df['price'] = pd.to_numeric(products_df['price'], errors='coerce')
+            
+            st.session_state.products_df = products_df
+            
+            def get_products(query: str) -> str:
+                """Retrieve products from CSV data"""
+                try:
+                    # Clean and split query into search terms
+                    search_terms = [term.strip().lower() for term in re.split(r'\W+', query) if term]
+                    
+                    # Find matching products
+                    mask = products_df['title'].apply(
+                        lambda x: any(term in x.lower() for term in search_terms)
+                    )
+                    matches = products_df[mask]
+                    
+                    if matches.empty:
+                        return "No products found matching your query."
+                    
+                    return "\n".join([f"<h3>{row['title']}</h3>" 
+                                    for _, row in matches.head(3).iterrows()])
+                except Exception as e:
+                    return f"Error: {str(e)}"
+
+            shopify_tool = FunctionTool.from_defaults(
+                fn=get_products,
+                name="product_search",
+                description=(
+                    "Access this tool to find clothing products by type, name, or keywords. "
+                    "Always use when users ask about suits, clothing items, or specific products."
                 )
-                matches = products_df[mask]
-                
-                if matches.empty:
-                    return "No products found."
-                
-                return "\n".join([f"<h3>{row['title']}</h3>" 
-                                for _, row in matches.head(3).iterrows()])
-            except Exception as e:
-                return f"Error: {str(e)}"
-
-        shopify_tool = FunctionTool.from_defaults(
-            fn=get_products,
-            name="product_search",
-            description=(
-                "Access this tool to find clothing products by type, name, or keywords. "
-                "Always use when users ask about suits, clothing items, or specific products."
             )
-        )
 
-        llm = openai.OpenAI(
-            api_key=OPENAI_API_KEY,
-            model="gpt-3.5-turbo-0125"
-        )
-        
-        st.session_state.agent = ReActAgent.from_tools(
-            tools=[shopify_tool],
-            llm=llm,
-            verbose=True,
-            context=f"""You are an e-commerce fashion assistant. Strict rules:
-            1. Always respond with product titles wrapped in <h3> tags
-            2. Never mention HTML or technical details
-            3. List max 3 products
-            4. For product requests, ALWAYS use the product_search tool
-            5. Maintain friendly, helpful tone"""
-        )
+            llm = openai.OpenAI(
+                api_key=OPENAI_API_KEY,
+                model="gpt-3.5-turbo-0125"
+            )
+            
+            st.session_state.agent = ReActAgent.from_tools(
+                tools=[shopify_tool],
+                llm=llm,
+                verbose=True,
+                context=f"""You are an e-commerce fashion assistant. Strict rules:
+                1. Always respond with product titles wrapped in <h3> tags
+                2. Never mention HTML or technical details
+                3. List max 3 products
+                4. For product requests, ALWAYS use the product_search tool
+                5. Maintain friendly, helpful tone"""
+            )
+            
+        except Exception as e:
+            st.error(f"Failed to initialize app: {str(e)}")
+            st.stop()  # Stop execution if initialization fails
 
 def apply_styles():
     st.markdown("""
