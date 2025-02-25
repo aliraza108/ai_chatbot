@@ -14,7 +14,7 @@ from llama_index.llms.openai import OpenAI
 load_dotenv()
 
 # 3) Use your OpenAI API key
-OPENAI_API_KEY = "sk-proj-..."  # Replace with your key
+OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 
 ###############################################################################
 #                               FAKE DATA                                     #
