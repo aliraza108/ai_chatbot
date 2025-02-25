@@ -3,3 +3,9 @@ python-dotenv
 llama-index
 openai
 ShopifyAPI
+streamlit
+llama-index
+openai
+pandas
+python-dotenv
+
