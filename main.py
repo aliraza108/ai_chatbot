@@ -8,25 +8,17 @@ from llama_index.core.tools import FunctionTool
 from llama_index.core.agent import ReActAgent
 from llama_index.llms import openai
 import warnings
-from urllib.parse import quote
 
 warnings.filterwarnings("ignore")
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configuration
-DOMAIN = "https://your-domain.com"  # Replace with your actual domain
-CSV_PATH = os.path.join("data", "pro.csv")
+# OpenAI Configuration
 OPENAI_API_KEY = "sk-proj-" + "p2dN0_oztdhFKtMjji9f5DGI7XQPFEORui43AF1arpd57VAdcEc2sHI77mSk5YX74uqgYIQYAwT3BlbkFJ_Bokz-n5mwr6coif3oieLYHu-6Xz5hxawV2mlKXtpTAOiyXiKWm6jtv5e7FOLlew8fSYFiU68A"
 
-def create_product_url(title):
-    """Generate proper product URL from title"""
-    handle = title.lower().replace(" ", "-").replace("'", "").replace(",", "")
-    return f"{DOMAIN}/products/{quote(handle)}"
-
 def enhance_product_display(response):
-    """Convert product mentions to proper cards with images"""
+    """Convert product mentions to proper cards with images using CSV data"""
     try:
         products_df = st.session_state.products_df
         
@@ -36,27 +28,41 @@ def enhance_product_display(response):
         
         for match in reversed(matches):
             title = match.group(1).strip()
-            product_match = products_df[products_df['title'].str.contains(title, case=False, na=False)]
-            
+            # Find product in DataFrame
+            product_match = products_df[products_df['title'] == title]
             if not product_match.empty:
                 product = product_match.iloc[0]
-                image_url = product['image_url'] if pd.notna(product['image_url']) else "https://via.placeholder.com/100"
-                product_url = create_product_url(product['title'])
-                
+                # Build product card
                 card_html = f"""
-                <div class="product-card">
+                <div class="product-card" style="
+                    border: 1px solid #e0e0e0;
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin: 15px 0;
+                ">
                     <h3>{product['title']}</h3>
-                    <img src="{image_url}" 
-                         style="max-width:100%; height:auto; border-radius:5px; margin:10px 0;"
+                    <img src="{product['image_url']}" 
+                         width="100" 
+                         style="max-width:100%; height:auto; border-radius:5px;"
                          alt="{product['title']}">
-                    <p style="margin: 10px 0;">Price: ${product['price']:.2f}</p>
-                    <a href="{product_url}" 
+                    <p style="margin: 10px 0;">Price: ${product['price']}</p>
+                    <a href="{product['product_url']}" 
                        target="_blank"
-                       class="product-button">
-                        View Product
+                       style="text-decoration: none;">
+                        <button style="
+                            background: #4CAF50;
+                            color: white;
+                            padding: 8px 16px;
+                            border: none;
+                            border-radius: 5px;
+                            cursor: pointer;
+                        ">
+                            View Product
+                        </button>
                     </a>
                 </div>
                 """
+                # Replace in reverse order to prevent offset issues
                 response = response[:match.start()] + card_html + response[match.end():]
         return response
     except Exception as e:
@@ -68,128 +74,84 @@ def init_session():
         st.session_state.messages = []
     
     if "agent" not in st.session_state:
-        try:
-            # Load CSV with validation
-            if not os.path.exists(CSV_PATH):
-                raise FileNotFoundError(f"CSV file not found at {CSV_PATH}")
-            
-            products_df = pd.read_csv(CSV_PATH)
-            
-            # Normalize column names (case-insensitive and strip spaces)
-            products_df.columns = products_df.columns.str.strip().str.lower()
-            
-            # Verify required columns
-            required_columns = ['title', 'image_url', 'price']
-            missing = [col for col in required_columns if col not in products_df.columns]
-            if missing:
-                raise ValueError(f"CSV is missing required columns: {missing}")
-                
-            # Clean data
-            products_df['title'] = products_df['title'].str.strip()
-            products_df['image_url'] = products_df['image_url'].fillna("https://via.placeholder.com/100")
-            products_df['price'] = pd.to_numeric(products_df['price'], errors='coerce')
-            
-            st.session_state.products_df = products_df
-            
-            def get_products(query: str) -> str:
-                """Retrieve products from CSV data"""
-                try:
-                    # Clean and split query into search terms
-                    search_terms = [term.strip().lower() for term in re.split(r'\W+', query) if term]
-                    
-                    # Find matching products
-                    mask = products_df['title'].apply(
-                        lambda x: any(term in x.lower() for term in search_terms)
-                    )
-                    matches = products_df[mask]
-                    
-                    if matches.empty:
-                        return "No products found matching your query."
-                    
-                    return "\n".join([f"<h3>{row['title']}</h3>" 
-                                    for _, row in matches.head(3).iterrows()])
-                except Exception as e:
-                    return f"Error: {str(e)}"
+        # Load CSV data
+        csv_path = os.path.join("data", "pro.csv")
+        products_df = pd.read_csv(csv_path)
+        st.session_state.products_df = products_df
+        
+        def get_products(query: str) -> str:
+            """Retrieve products from CSV data"""
+            return "\n".join([f"<h3>{row['title']}</h3>" 
+                            for _, row in products_df.head(3).iterrows()])
 
-            shopify_tool = FunctionTool.from_defaults(
-                fn=get_products,
-                name="product_search",
-                description=(
-                    "Access this tool to find clothing products by type, name, or keywords. "
-                    "Always use when users ask about suits, clothing items, or specific products."
-                )
-            )
+        shopify_tool = FunctionTool.from_defaults(
+            fn=get_products,
+            name="get_products",
+            description="Retrieve product listings with titles from inventory"
+        )
 
-            llm = openai.OpenAI(
-                api_key=OPENAI_API_KEY,
-                model="gpt-3.5-turbo-0125"
-            )
-            
-            st.session_state.agent = ReActAgent.from_tools(
-                tools=[shopify_tool],
-                llm=llm,
-                verbose=True,
-                context=f"""You are an e-commerce fashion assistant. Strict rules:
-                1. Always respond with product titles wrapped in <h3> tags
-                2. Never mention HTML or technical details
-                3. List max 3 products
-                4. For product requests, ALWAYS use the product_search tool
-                5. Maintain friendly, helpful tone"""
-            )
-            
-        except Exception as e:
-            st.error(f"Failed to initialize app: {str(e)}")
-            st.stop()  # Stop execution if initialization fails
+        llm = openai.OpenAI(
+            api_key=OPENAI_API_KEY,
+            model="gpt-3.5-turbo-0125"
+        )
+        
+        st.session_state.agent = ReActAgent.from_tools(
+            tools=[shopify_tool],
+            llm=llm,
+            verbose=False,
+            context=f"""
+            You are a product display assistant. Follow these rules:
+            1. Always respond with product titles wrapped in <h3> tags
+            2. Never include raw HTML in responses
+            3. List 3 products maximum
+            4. Keep descriptions concise
+            5. Let the system handle images and buttons
+            """
+        )
 
 def apply_styles():
     st.markdown("""
     <style>
     .product-card {
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
+        background: white;
         padding: 15px;
         margin: 15px 0;
-        background: white;
+        border-radius: 10px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
-    .product-card img {
-        max-width: 200px;
-        height: auto;
-        display: block;
-        margin: 0 auto;
+    .stChatMessage {
+        background: #f5f5f5 !important;
+        border-radius: 15px !important;
     }
-    .product-button {
-        display: inline-block;
-        background: #4CAF50;
-        color: white !important;
-        padding: 8px 16px;
-        border-radius: 5px;
-        text-decoration: none !important;
-        margin-top: 10px;
+    button {
+        transition: transform 0.2s !important;
     }
-    .product-button:hover {
-        background: #45a049;
+    button:hover {
+        transform: scale(1.05) !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
 def main():
-    st.title("🛍️✨ Fashion Assistant Pro")
+    st.title("🛍️✨ Shop Assistant Pro")
     init_session()
     apply_styles()
 
-    # Display chat history
+    # Display history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"], unsafe_allow_html=True)
 
-    if prompt := st.chat_input("Ask about our fashion collection..."):
+    # Handle input
+    if prompt := st.chat_input("Ask about products..."):
+        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         try:
             with st.chat_message("assistant"):
+                # Get and process response
                 response = st.session_state.agent.query(prompt)
                 processed = enhance_product_display(response.response)
                 st.markdown(processed, unsafe_allow_html=True)
@@ -198,7 +160,7 @@ def main():
                     "content": processed
                 })
         except Exception as e:
-            st.error(f"Error processing request: {str(e)}")
+            st.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
